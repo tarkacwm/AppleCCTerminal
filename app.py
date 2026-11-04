@@ -27,9 +27,9 @@ with st.sidebar:
     st.header('Portfolio & data')
     mode=st.radio('Source',['Yahoo Finance','Synthetic demonstration'],index=0)
     ticker=st.text_input('Symbol','AAPL').strip().upper()
-    shares=st.number_input('Shares owned',min_value=100,value=106000,step=100)
-    overwrite=st.slider('Maximum overwrite (%)',0,100,70)/100
-    loan=st.number_input('Margin balance ($)',min_value=0.0,value=17600000.0,step=100000.0)
+    shares=st.number_input('Shares owned',min_value=100,value=100000,step=100)
+    overwrite=st.slider('Maximum overwrite (%)',0,100,100)/100
+    loan=st.number_input('Margin balance ($)',min_value=0.0,value=0,step=100000.0)
     loan_rate=st.number_input('Annual margin rate (%)',0.0,25.0,4.85,.05)/100
     st.header('Model assumptions')
     target_delta=st.slider('Target entry delta',.01,.30,.05,.01)
