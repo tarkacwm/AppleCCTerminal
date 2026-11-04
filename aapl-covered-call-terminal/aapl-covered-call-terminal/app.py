@@ -38,6 +38,10 @@ with st.sidebar:
     div_yield=st.number_input('Dividend yield (%)',0.0,15.0,.35,.05)/100
     option_tax=st.number_input('Option gain tax reserve (%)',0.0,60.0,40.0,1.0)/100
     fee=st.number_input('Annual advisory fee (%)',0.0,5.0,.80,.05)/100
+    st.header('Expiration selection')
+    min_dte=st.number_input('Minimum calendar DTE for new writes',min_value=0,max_value=365,value=0,step=1,help='0 includes same-day expiry, if it has not passed the market cutoff.')
+    max_dte=st.number_input('Maximum calendar DTE for new writes',min_value=0,max_value=365,value=45,step=1)
+    st.caption('0–2 DTE contracts are high gamma-risk. Longer expirations are available too; controls do not execute trades.')
     st.header('Trade safeguards')
     min_otm=st.number_input('Min upside cushion (%)',0.0,25.0,5.0,.5)/100
     min_oi=st.number_input('Minimum open interest',0,20000,100,50)
@@ -61,8 +65,8 @@ if not expirations:
     st.error('No expirations available. Try the synthetic demonstration mode.');st.stop()
 
 vols=realized_vol(hist.Close)
-expiry_choices=[e for e in expirations if 3 <= (date.fromisoformat(e)-date.today()).days <= 21]
-if not expiry_choices: expiry_choices=expirations[:6]
+expiry_choices=sorted(e for e in expirations if (date.fromisoformat(e)-date.today()).days>=0)
+if not expiry_choices: st.error('No remaining expirations returned by the data source.');st.stop()
 st.subheader('Market context')
 a,b,c,d,e=st.columns(5)
 a.metric('Spot price',f'${spot:,.2f}')
@@ -72,7 +76,11 @@ d.metric('60D realized vol',f'{vols[60]:.1%}' if np.isfinite(vols[60]) else 'N/A
 e.metric('252D realized vol',f'{vols[252]:.1%}' if np.isfinite(vols[252]) else 'N/A')
 st.caption(f'Data source: {mode}; retrieved/cached in session; refresh cache manually. Last historical bar: {hist.index[-1]}. Last trade time is not a quote timestamp.')
 
-selection=st.multiselect('Expirations to scan',expiry_choices,default=expiry_choices[:min(2,len(expiry_choices))])
+st.caption('Choose **any available expiration**, including same-day or next-day contracts when listed. Available dates depend on the underlying and data source.')
+filtered_expirations=[e for e in expiry_choices if min_dte <= (date.fromisoformat(e)-date.today()).days <= max_dte]
+if min_dte>max_dte: st.warning('Minimum DTE exceeds maximum DTE. Adjust the sidebar range.')
+default_expirations=filtered_expirations[:min(3,len(filtered_expirations))]
+selection=st.multiselect('Expirations to scan (all listed dates)',expiry_choices,default=default_expirations,help='The sidebar DTE window defines eligibility, not which expiration dates you may inspect.')
 frames=[];fails=[]
 for exp in selection:
     try:
@@ -83,13 +91,14 @@ for fail in fails:st.warning(f'Could not load {fail}')
 if not frames:
     st.warning('No option chains loaded. Adjust expirations or use demonstration data.');st.stop()
 chain=pd.concat(frames,ignore_index=True)
-scored=score_chain(chain,spot,shares,overwrite,rate,div_yield,option_tax,fee,target_delta,max_delta,min_otm,min_oi,max_spread,min_yield,earnings_days)
+scored=score_chain(chain,spot,shares,overwrite,rate,div_yield,option_tax,fee,target_delta,max_delta,min_otm,min_oi,max_spread,min_yield,earnings_days,min_dte=max(float(min_dte),0.001),max_dte=max_dte+0.999)
 
 scanner,voltab,monitor,margin,journal=st.tabs(['Strike scanner','Volatility & stress','Position monitor','Margin & tax','Trade journal'])
 with scanner:
     st.subheader('Market-IV-anchored option ranking')
     valid=scored[scored.eligible]
     st.metric('Eligible candidates',len(valid))
+    if any(chain.dte < 3): st.warning('Short-dated (0–2 DTE) options have sharply elevated gamma/assignment and execution risk. Check live bid/ask and expiry cutoff before acting. A low entry delta does not mean a position will stay low risk.')
     if len(valid):
         top=valid.iloc[0]
         st.success(f"Highest-ranked research candidate: {top.expiration} ${top.strike:,.2f} call • delta {top.delta:.3f} • score {top.score:.1f}/100 • estimated net premium ${top.net_premium:,.0f}")
@@ -136,9 +145,15 @@ with monitor:
     with cc2: held_credit=st.number_input('Original credit per share ($)',value=.71,min_value=0.0,step=.05)
     with cc3: held_contracts=st.number_input('Number of short contracts',value=int(shares*overwrite//100),min_value=0)
     cc4,cc5=st.columns(2)
-    with cc4: held_exp=st.selectbox('Held option expiration',expirations,index=0)
+    with cc4: held_exp=st.selectbox('Held option expiration',expiry_choices,index=0)
     with cc5: manual_buyback=st.number_input('Manual executable buyback price (optional, $)',value=0.0,min_value=0.0,step=.05)
     held_chain=chain[(chain.expiration==held_exp)&(abs(chain.strike-held_strike)<.01)]
+    if held_chain.empty and held_exp not in selection:
+        try:
+            held_raw=options_data(ticker,held_exp) if mode=='Yahoo Finance' else demo_chain(spot,held_exp,rate,div_yield)
+            held_full=prepare_chain(held_raw,spot,held_exp,rate,div_yield)
+            held_chain=held_full[abs(held_full.strike-held_strike)<.01]
+        except Exception as exc: st.caption(f'Held-contract quote unavailable: {exc}')
     if len(held_chain):
         r=held_chain.iloc[0]; held_delta=float(r.delta);held_dte=float(r.dte);buyback=float(r.ask) if not manual_buyback else manual_buyback
         quote_source='Yahoo ask (delayed/indicative)' if mode=='Yahoo Finance' and not manual_buyback else 'Manual / demo quote'

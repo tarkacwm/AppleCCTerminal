@@ -50,4 +50,4 @@ def demo_chain(spot,expiration,rate=.04,div_yield=.004):
 
 def demo_expirations():
     today=dt.date.today()
-    return [(today+dt.timedelta(days=i)).isoformat() for i in (7,10,14)]
+    return [(today+dt.timedelta(days=i)).isoformat() for i in (0,1,2,3,4,5,7,10,14,21,30,45,60)]

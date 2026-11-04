@@ -52,3 +52,26 @@ def test_journal_loss():
     out=summarize_journal(row,.4)
     assert out.realized_option_pl.iloc[0]==-240800.0 or abs(out.realized_option_pl.iloc[0]+240800)<.01
     assert out.illustrative_tax_reserve.iloc[0]==0
+
+
+def test_short_dated_expiration_can_be_scanned():
+    """One-day options should be eligible when controls permit them."""
+    expiration=(datetime.now(timezone.utc)+timedelta(days=1)).date().isoformat()
+    now=datetime.now(timezone.utc)
+    frame=pd.DataFrame([dict(strike=315.0,bid=.10,ask=.12,openInterest=5000,volume=400,
+        impliedVolatility=.55,lastTradeDate=now)])
+    prepared=prepare_chain(frame,300,expiration,.04,.0035,now=now)
+    ranked=score_chain(prepared,300,106000,.7,.04,.0035,.4,.008,.05,.20,.05,100,.40,.001,90,
+                       min_dte=.001,max_dte=2.999)
+    assert 0 < ranked.dte.iloc[0] < 3
+    assert bool(ranked.eligible.iloc[0])
+
+
+def test_zero_time_to_expiration_is_not_eligible():
+    expiry=(datetime.now(timezone.utc)-timedelta(days=1)).date().isoformat()
+    raw=pd.DataFrame([dict(strike=330.0,bid=.10,ask=.12,openInterest=1000,volume=100,
+        impliedVolatility=.50)])
+    prepared=prepare_chain(raw,300,expiry,.04,.0035)
+    ranked=score_chain(prepared,300,106000,.7,.04,.0035,.4,.008,.05,.20,.05,100,.40,.001,90,
+                       min_dte=.001,max_dte=2.999)
+    assert not bool(ranked.eligible.iloc[0])

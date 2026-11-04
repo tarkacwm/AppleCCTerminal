@@ -7,7 +7,7 @@ from .analytics import stress_cost
 def score_chain(df:pd.DataFrame, spot:float, shares:int, overwrite:float, rate:float, div_yield:float,
                 tax_rate:float, advisory_fee:float, target_delta:float, max_delta:float,
                 min_otm:float, min_oi:int, max_spread:float, min_yield:float, earnings_days:int,
-                min_dte:float=4, max_dte:float=14)->pd.DataFrame:
+                min_dte:float=0.001, max_dte:float=45)->pd.DataFrame:
     x=df.copy()
     contracts=int(shares*overwrite//100)
     x['contracts']=contracts
@@ -23,7 +23,7 @@ def score_chain(df:pd.DataFrame, spot:float, shares:int, overwrite:float, rate:f
     # Risk denominator: positive buyback loss under +10% shock, not a statistical expected loss.
     x['buyback_loss_10pct']=x.stress_10pct.clip(lower=0)
     x['premium_risk_efficiency']=x.net_premium/(x.buyback_loss_10pct+np.maximum(1000,x.gross_premium*.05))
-    x['eligible']=(x.mid.gt(0)&x.strike.gt(spot)&x.used_iv.notna()&x.delta.between(.001,max_delta)&
+    x['eligible']=(x.dte.gt(0)&x.mid.gt(0)&x.strike.gt(spot)&x.used_iv.notna()&x.delta.between(.001,max_delta)&
         x.otm_pct.ge(min_otm)&x.spread_pct.between(0,max_spread)&x.openInterest.fillna(0).ge(min_oi)&
         x.dte.between(min_dte,max_dte)&x.annualized_gross_yield.ge(min_yield)&x.net_premium.gt(0)&
         (earnings_days > x.dte + 3)&(contracts>0))
@@ -48,7 +48,8 @@ def _reason(r,min_otm,max_delta,min_oi,max_spread,min_yield,earnings_days,min_dt
     if pd.isna(r.delta) or r.delta>max_delta: reasons.append('Delta exceeds cap/unavailable')
     if pd.isna(r.spread_pct) or r.spread_pct>max_spread: reasons.append('Wide spread')
     if pd.isna(r.openInterest) or r.openInterest<min_oi: reasons.append('Low open interest')
-    if not min_dte<=r.dte<=max_dte: reasons.append('Expiration outside window')
+    if not min_dte<=r.dte<=max_dte: reasons.append('Expiration outside selected DTE window')
+    if r.dte<=0: reasons.append('Expiration cutoff passed')
     if r.annualized_gross_yield<min_yield: reasons.append('Premium below hurdle')
     if earnings_days<=r.dte+3: reasons.append('Earnings within expiration buffer')
     return '; '.join(reasons) or 'Passes defined research filters'

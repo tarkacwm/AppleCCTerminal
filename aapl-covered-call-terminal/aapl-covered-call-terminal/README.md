@@ -83,3 +83,9 @@ tests/                   Unit tests
 .streamlit/config.toml   Theme
 requirements.txt         Dependencies
 ```
+
+## Expirations, including shorter-dated contracts
+
+The **Expirations to scan (all listed dates)** multiselect now displays every unexpired expiration provided by the data source, not just 3–21 DTE. The sidebar provides **Minimum calendar DTE for new writes** (default 0) and **Maximum calendar DTE for new writes** (default 45); these settings determine eligibility and the default selected expirations, but do **not** hide other available expiration dates. You can select weekly, 1–2 DTE, same-day (0DTE) when available, or longer dates. Synthetic demonstration includes 0, 1, 2, 3, 4, 5, 7, 10, 14, 21, 30, 45 and 60-day expirations for UI testing; these are not exchange-listed dates.
+
+Scoring uses fractional calendar days until the standard 4:00 p.m. New York expiration cutoff. An expiration after that cutoff is ineligible. Very short-dated calls have significantly higher gamma and execution/assignment risk. The score is only a research ranking; never interpret 0DTE eligibility as a recommendation to trade. For trade-ready risk monitoring, broker-native live quotes and human approval are necessary.
