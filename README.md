@@ -21,7 +21,7 @@ A GitHub-ready **Streamlit research dashboard** for managing a concentrated, low
 ## Deploy to Streamlit Community Cloud
 
 1. Create a new GitHub repository (private recommended for proprietary workflows).
-2. Upload **all files and directories from this project**, preserving the folder structure.
+2. Upload the **contents** of the extracted project folder directly into the GitHub repository root. Do **not** upload only `app.py`, and do **not** put the files under an extra `aapl-covered-call-terminal/` folder. `app.py`, `requirements.txt`, and the `engine/` directory must be siblings.
 3. Go to https://share.streamlit.io/ and choose **Create app** / **Deploy**.
 4. Select your GitHub repository, branch `main`, and main file `app.py`.
 5. Deploy. No API key is needed for the Yahoo prototype.
@@ -89,3 +89,21 @@ requirements.txt         Dependencies
 The **Expirations to scan (all listed dates)** multiselect now displays every unexpired expiration provided by the data source, not just 3–21 DTE. The sidebar provides **Minimum calendar DTE for new writes** (default 0) and **Maximum calendar DTE for new writes** (default 45); these settings determine eligibility and the default selected expirations, but do **not** hide other available expiration dates. You can select weekly, 1–2 DTE, same-day (0DTE) when available, or longer dates. Synthetic demonstration includes 0, 1, 2, 3, 4, 5, 7, 10, 14, 21, 30, 45 and 60-day expirations for UI testing; these are not exchange-listed dates.
 
 Scoring uses fractional calendar days until the standard 4:00 p.m. New York expiration cutoff. An expiration after that cutoff is ineligible. Very short-dated calls have significantly higher gamma and execution/assignment risk. The score is only a research ranking; never interpret 0DTE eligibility as a recommendation to trade. For trade-ready risk monitoring, broker-native live quotes and human approval are necessary.
+
+## Troubleshooting: `ModuleNotFoundError` at `from engine.data import ...`
+
+On GitHub, verify this layout **at the top level**:
+
+```text
+app.py
+requirements.txt
+engine/
+  __init__.py
+  data.py
+  analytics.py
+  pricing.py
+  scoring.py
+  portfolio.py
+```
+
+A missing `engine/` folder or an extra nesting directory causes import failures. The `requirements.txt` must be next to `app.py`; missing third-party packages such as `yfinance` or `scipy` will also cause import errors. In Streamlit Cloud, open **Manage app > Logs** and check the *last line* of the full traceback to see the name of the missing module, then reboot or redeploy after correcting the repository.
