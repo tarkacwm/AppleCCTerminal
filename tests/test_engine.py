@@ -75,3 +75,24 @@ def test_zero_time_to_expiration_is_not_eligible():
     ranked=score_chain(prepared,300,106000,.7,.04,.0035,.4,.008,.05,.20,.05,100,.40,.001,90,
                        min_dte=.001,max_dte=2.999)
     assert not bool(ranked.eligible.iloc[0])
+
+from engine.data import parse_yahoo_expirations, load_chain_csv
+from io import StringIO
+
+def test_parse_direct_yahoo_expiration_dates():
+    result={'optionChain':{'result':[{'expirationDates':[1795219200,1795824000]}]}}
+    assert len(parse_yahoo_expirations(result)) == 2
+    assert parse_yahoo_expirations({'optionChain':{'result':[]}}) == []
+
+def test_csv_chain_load():
+    data=StringIO('expiration,strike,bid,ask,impliedVolatility,openInterest,volume\\n2026-12-04,340,0.5,0.6,0.30,1000,200\\n')
+    # StringIO with actual newline
+    data=StringIO('expiration,strike,bid,ask,impliedVolatility,openInterest,volume\n2026-12-04,340,0.5,0.6,0.30,1000,200\n')
+    calls=load_chain_csv(data)
+    assert calls.strike.iloc[0] == 340
+    assert calls.expiration.iloc[0] == '2026-12-04'
+
+def test_csv_missing_fields():
+    from pytest import raises
+    with raises(ValueError,match='missing required'):
+        load_chain_csv(StringIO('strike,bid,ask\n340,0.5,0.6\n'))

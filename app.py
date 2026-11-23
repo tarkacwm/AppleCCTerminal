@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from engine.data import fetch_market, fetch_options, demo_market, demo_chain, demo_expirations
+from engine.data import fetch_market, fetch_options, demo_market, demo_chain, demo_expirations, load_chain_csv
 from engine.analytics import realized_vol,prepare_chain,stress_cost
 from engine.pricing import target_strike, call_delta, ceil_strike
 from engine.scoring import score_chain, position_flag
@@ -25,11 +25,15 @@ def options_data(ticker,expiry): return fetch_options(ticker,expiry)
 
 with st.sidebar:
     st.header('Portfolio & data')
-    mode=st.radio('Source',['Yahoo Finance','Synthetic demonstration'],index=0)
+    mode=st.radio('Source',['Yahoo Finance','Uploaded options CSV','Synthetic demonstration'],index=0)
+    if mode=='Uploaded options CSV':
+        uploaded_chain=st.file_uploader('Upload options chain CSV',type=['csv'],help='Required: expiration, strike, bid, ask. Optional: impliedVolatility, openInterest, volume, contractSymbol.')
+        csv_spot=st.number_input('AAPL spot for uploaded chain ($)',min_value=.01,value=300.0,step=1.0)
+        st.caption('Use contemporaneous stock price and option quotes. CSV mode uses synthetic historical prices solely for the historical-volatility display.')
     ticker=st.text_input('Symbol','AAPL').strip().upper()
-    shares=st.number_input('Shares owned',min_value=100,value=100000,step=100)
-    overwrite=st.slider('Maximum overwrite (%)',0,100,100)/100
-    loan=st.number_input('Margin balance ($)',min_value=0.0,value=0.01,step=100000.0)
+    shares=st.number_input('Shares owned',min_value=100,value=106000,step=100)
+    overwrite=st.slider('Maximum overwrite (%)',0,100,70)/100
+    loan=st.number_input('Margin balance ($)',min_value=0.0,value=17600000.0,step=100000.0)
     loan_rate=st.number_input('Annual margin rate (%)',0.0,25.0,4.85,.05)/100
     st.header('Model assumptions')
     target_delta=st.slider('Target entry delta',.01,.30,.05,.01)
@@ -56,13 +60,20 @@ with st.sidebar:
 
 try:
     if mode=='Yahoo Finance': spot,hist,expirations=market_data(ticker)
+    elif mode=='Uploaded options CSV':
+        if uploaded_chain is None:
+            st.info('Upload a call-option CSV to scan actual recorded quotes. Required columns: expiration, strike, bid, ask.');st.stop()
+        csv_data=load_chain_csv(uploaded_chain)
+        spot=float(csv_spot)
+        _,hist=demo_market()
+        expirations=sorted(csv_data.expiration.unique().tolist())
     else:
         spot,hist=demo_market();expirations=demo_expirations()
 except Exception as exc:
     st.error(f'Yahoo data unavailable: {exc}. Switch to Synthetic demonstration to explore the model.');st.stop()
 
 if not expirations:
-    st.error('No expirations available. Try the synthetic demonstration mode.');st.stop()
+    st.error('No expirations were returned. Switch to Uploaded options CSV to scan independently of Yahoo, or use Synthetic demonstration.');st.stop()
 
 vols=realized_vol(hist.Close)
 expiry_choices=sorted(e for e in expirations if (date.fromisoformat(e)-date.today()).days>=0)
@@ -75,6 +86,7 @@ c.metric('20D realized vol',f'{vols[20]:.1%}' if np.isfinite(vols[20]) else 'N/A
 d.metric('60D realized vol',f'{vols[60]:.1%}' if np.isfinite(vols[60]) else 'N/A')
 e.metric('252D realized vol',f'{vols[252]:.1%}' if np.isfinite(vols[252]) else 'N/A')
 st.caption(f'Data source: {mode}; retrieved/cached in session; refresh cache manually. Last historical bar: {hist.index[-1]}. Last trade time is not a quote timestamp.')
+if mode=='Uploaded options CSV': st.warning('CSV mode: realized-volatility figures are synthetic demonstration values. Delta, IV, and scoring use the uploaded chain and manually entered spot. Never mix quotes from different timestamps.')
 
 st.caption('Choose **any available expiration**, including same-day or next-day contracts when listed. Available dates depend on the underlying and data source.')
 filtered_expirations=[e for e in expiry_choices if min_dte <= (date.fromisoformat(e)-date.today()).days <= max_dte]
@@ -84,7 +96,7 @@ selection=st.multiselect('Expirations to scan (all listed dates)',expiry_choices
 frames=[];fails=[]
 for exp in selection:
     try:
-        raw=options_data(ticker,exp) if mode=='Yahoo Finance' else demo_chain(spot,exp,rate,div_yield)
+        raw=(options_data(ticker,exp) if mode=='Yahoo Finance' else csv_data[csv_data.expiration==exp].copy() if mode=='Uploaded options CSV' else demo_chain(spot,exp,rate,div_yield))
         frames.append(prepare_chain(raw,spot,exp,rate,div_yield))
     except Exception as exc: fails.append(f'{exp}: {exc}')
 for fail in fails:st.warning(f'Could not load {fail}')
@@ -107,7 +119,7 @@ with scanner:
     st.dataframe(scored[cols],use_container_width=True,hide_index=True,column_config={'otm_pct':st.column_config.NumberColumn(format='%.2f'),'delta':st.column_config.NumberColumn(format='%.3f'),'score':st.column_config.NumberColumn(format='%.1f')})
     st.download_button('Download scored chain CSV',scored.to_csv(index=False).encode(),'aapl_scored_chain.csv','text/csv')
     st.caption('Score = premium (35) + delta proximity (25) + OTM cushion (15) + spread (10) + open interest (5) + +10% shock efficiency (10). Heuristic; not an expected-return estimate.')
-    st.caption('IV: Yahoo strike-level quoted IV is primary. When unavailable, Black-Scholes inversion from valid bid/ask midpoint is used and flagged. Poor/zero quotes are excluded.')
+    st.caption('IV: Strike-level quoted IV is primary. When unavailable, Black-Scholes inversion from valid bid/ask midpoint is used and flagged. Poor/zero quotes are excluded.')
 with voltab:
     st.subheader('Volatility term structure & strike engineering')
     available=chain[(chain.otm_pct>=-.03)&(chain.otm_pct<=.03)&chain.used_iv.notna()]
@@ -150,7 +162,7 @@ with monitor:
     held_chain=chain[(chain.expiration==held_exp)&(abs(chain.strike-held_strike)<.01)]
     if held_chain.empty and held_exp not in selection:
         try:
-            held_raw=options_data(ticker,held_exp) if mode=='Yahoo Finance' else demo_chain(spot,held_exp,rate,div_yield)
+            held_raw=(options_data(ticker,held_exp) if mode=='Yahoo Finance' else csv_data[csv_data.expiration==held_exp].copy() if mode=='Uploaded options CSV' else demo_chain(spot,held_exp,rate,div_yield))
             held_full=prepare_chain(held_raw,spot,held_exp,rate,div_yield)
             held_chain=held_full[abs(held_full.strike-held_strike)<.01]
         except Exception as exc: st.caption(f'Held-contract quote unavailable: {exc}')

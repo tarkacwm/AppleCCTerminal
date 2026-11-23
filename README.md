@@ -107,3 +107,13 @@ engine/
 ```
 
 A missing `engine/` folder or an extra nesting directory causes import failures. The `requirements.txt` must be next to `app.py`; missing third-party packages such as `yfinance` or `scipy` will also cause import errors. In Streamlit Cloud, open **Manage app > Logs** and check the *last line* of the full traceback to see the name of the missing module, then reboot or redeploy after correcting the repository.
+
+## Troubleshooting: "No expirations available"
+
+Yahoo can return a valid stock-price history but an empty options-expiration list, particularly from a hosted cloud environment. The app now retries options-expiration discovery directly against both Yahoo query hosts. If both attempts fail, it displays the underlying HTTP errors (for example 401, 403, or 429) instead of silently presenting an empty list. A Yahoo access restriction cannot be bypassed reliably by code alone.
+
+### Workaround without Yahoo options access
+
+Choose **Uploaded options CSV** under Source. Upload a CSV of AAPL **call** option quotes using columns `expiration,strike,bid,ask,impliedVolatility,openInterest,volume,contractSymbol` (the last four are optional). Enter the AAPL stock price corresponding to those same quotes in the sidebar. The scanner and risk analysis will use this real option-chain snapshot; historical-volatility cards in CSV mode are synthetic demonstration history and are labeled accordingly. For live decision-making, use a licensed/approved brokerage or market-data provider.
+
+The `sample_option_chain.csv` file illustrates formatting only; its prices and IVs are synthetic and not actionable quotes. If the Yahoo feed is restricted on Streamlit Cloud, retrying may not restore access; CSV mode is a deliberate alternative.
